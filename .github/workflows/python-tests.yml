@@ -1,3 +1,4 @@
+
 name: VeriTalent AI Automated Tests
 
 on:
@@ -18,7 +19,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
-      - run: python -m pip install -r backend/requirements.txt
+        run: python -m pip install -r backend/requirements.txt
 
       - name: Run automated tests
         run: python -m pytest -v
