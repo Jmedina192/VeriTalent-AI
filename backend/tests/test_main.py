@@ -16,11 +16,20 @@ def test_compare_resume_valid_schema():
     response = client.post("/api/v1/compare", json=payload)
     assert response.status_code == 200
     data = response.json()
+    assert data["candidate_status"] == "mock_scaffold"
     assert data["requires_human_review"] is True
     assert "evidence_citation" in data["findings"][0]
     assert "uncertainty_flag" in data["findings"][0]
 
 def test_compare_resume_rejects_short_input():
     payload = {"job_description": "short", "resume_text": "short"}
+    response = client.post("/api/v1/compare", json=payload)
+    assert response.status_code == 422
+
+def test_compare_resume_rejects_whitespace_padding():
+    payload = {
+        "job_description": "               ",
+        "resume_text": "     short     "
+    }
     response = client.post("/api/v1/compare", json=payload)
     assert response.status_code == 422
