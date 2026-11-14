@@ -17,6 +17,13 @@ Created PDF extraction tests.
 November 13, 2026 - Karen Miller
 Updated the valid PDF test to generate actual page text
 using ReportLab rather than a PDF annotation.
+
+November 14, 2026 - Karen Miller
+Added three security and performance tests in response
+to peer-review feedback from Brian Marquez. The new tests
+verify rejection of PDFs exceeding the 5-MB file-size
+limit, rejection of PDFs exceeding four pages, and
+acceptance of valid four-page PDF documents.
 """
 
 from io import BytesIO
@@ -97,3 +104,64 @@ def test_blank_pdf_without_readable_text():
 
     with pytest.raises(ValueError, match="no readable text"):
         extract_pdf_text(output.getvalue())
+
+
+
+# ============================================================
+# TEST 5: Reject PDFs larger than 5 MB
+# ============================================================
+
+def test_pdf_exceeds_file_size_limit():
+    """Reject a PDF exceeding the 5-MB limit."""
+    oversized_pdf = b"%PDF-1.4\n" + (
+        b"X" * (5 * 1024 * 1024)
+    )
+
+    with pytest.raises(ValueError, match="maximum file size"):
+        extract_pdf_text(oversized_pdf)
+
+
+# ============================================================
+# TEST 6: Reject PDFs containing more than 4 pages
+# ============================================================
+
+def test_pdf_exceeds_page_limit():
+    """Reject a PDF containing five pages."""
+    writer = PdfWriter()
+
+    for _ in range(5):
+        writer.add_blank_page(width=612, height=792)
+
+    output = BytesIO()
+    writer.write(output)
+
+    with pytest.raises(ValueError, match="maximum limit of 4 pages"):
+        extract_pdf_text(output.getvalue())
+
+
+# ============================================================
+# TEST 7: Accept a valid 4-page PDF
+# ============================================================
+
+def test_pdf_at_maximum_page_limit():
+    """Accept a readable PDF containing exactly four pages."""
+    output = BytesIO()
+
+    pdf = canvas.Canvas(output, pagesize=(612, 792))
+
+    for page_number in range(4):
+        pdf.drawString(
+            50,
+            700,
+            f"Page {page_number + 1}: Python and SQL experience"
+        )
+        pdf.showPage()
+
+    pdf.save()
+
+    text = extract_pdf_text(output.getvalue())
+
+    assert "Page 1" in text
+    assert "Page 4" in text
+    assert "Python" in text
+    assert "SQL" in text
