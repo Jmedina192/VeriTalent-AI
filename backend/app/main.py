@@ -2,20 +2,22 @@
 Project: VeriTalent AI
 Course: CMSC 495 - Computer Science Capstone
 Original Backend: Julio Medina
-Integration Changes: Karen Miller
-Date: November 9, 2026
+Integration Changes: Karen Miller & Julio Medina
+Date: November 14, 2026
 
 Description:
-FastAPI backend connected to the Gemini evaluation service.
+FastAPI backend connected to the PDF extraction and Gemini evaluation services.
 Preserves the shared response format and human review.
 """
 
-from typing import List, Optional
+import base64
+import binascii
+from typing import List, Optional, Literal
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-from backend.app.services import gemini_service
+from backend.app.services import gemini_service, pdf_service
 
 
 app = FastAPI(title="VeriTalent AI API", version="0.1.0")
@@ -29,13 +31,27 @@ class EvidenceItem(BaseModel):
 
 
 class ComparisonRequest(BaseModel):
-    job_description: str = Field(..., min_length=10)
-    resume_text: str = Field(..., min_length=10)
+    job_description: str = Field(..., min_length=10, max_length=10000)
+    resume_text: str = Field(..., min_length=10, max_length=25000)
+    required_skills: List[str] = Field(..., min_length=1)
+
+    @field_validator("job_description", "resume_text")
+    @classmethod
+    def strip_and_validate_nonempty(cls, value: str) -> str:
+        cleaned = value.strip()
+        if len(cleaned) < 10:
+            raise ValueError("Input must contain at least 10 non-whitespace characters.")
+        return cleaned
+
+
+class PdfComparisonRequest(BaseModel):
+    job_description: str = Field(..., min_length=10, max_length=10000)
+    pdf_base64: str = Field(..., min_length=1)
     required_skills: List[str] = Field(..., min_length=1)
 
 
 class ComparisonResponse(BaseModel):
-    candidate_status: str
+    candidate_status: Literal["evaluated", "mock_scaffold", "error"]
     findings: List[EvidenceItem]
     requires_human_review: bool = True
 
@@ -117,3 +133,40 @@ def compare_resume(payload: ComparisonRequest):
         findings=findings,
         requires_human_review=True
     )
+
+
+@app.post("/api/v1/compare-pdf", response_model=ComparisonResponse)
+def compare_pdf_resume(payload: PdfComparisonRequest):
+    """
+    Extracts readable text from a base64-encoded PDF resume via pdf_service
+    and evaluates it against required job skills using Gemini.
+    """
+    try:
+        pdf_bytes = base64.b64decode(payload.pdf_base64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid base64-encoded PDF payload."
+        )
+
+    try:
+        extracted_text = pdf_service.extract_pdf_text(pdf_bytes)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc)
+        )
+
+    try:
+        comparison_payload = ComparisonRequest(
+            job_description=payload.job_description,
+            resume_text=extracted_text,
+            required_skills=payload.required_skills
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc)
+        )
+
+    return compare_resume(comparison_payload)
